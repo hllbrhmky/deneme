@@ -1,0 +1,48 @@
+String gitUrl = "git@github.com:mehmeterslann/whoami-apps.git"
+String ECR_REGISTRY = "856880541881.dkr.ecr.eu-west-1.amazonaws.com"
+String ECR_REPOSITORY = "web-app"
+String REPO_NAME = "whoami-apps"
+ansiColor('xterm') {
+    timestamps {
+        node() {
+            try {
+                properties([
+                    parameters([
+                        string(name: 'branch', description: 'Branch Name', defaultValue: 'master')
+                    ]),
+                ])
+                stage('Checkout') {
+                    checkout([$class: 'GitSCM', branches: [[name: "master"]], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[ url: "${gitUrl}"]]])
+                }
+                stage("Build Dockerfile"){
+                    sh """
+                    docker build . --build-arg BRANCHES=${branch} --file Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:${branch}
+                    """
+                }
+                stage("Docker Login For AWS"){
+                    sh """
+                    aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+                    """
+                }
+                stage("Push Docker Image"){
+                    sh """
+                    docker push $ECR_REGISTRY/$ECR_REPOSITORY:${branch}
+                    """
+                }
+                /*
+                stage ('Deployment Job Trigger') {
+                build job: "farmalab-deployment", parameters: [
+                    [$class: 'StringParameterValue', name: 'branch', value: "$branch"],
+                    [$class: 'StringParameterValue', name: 'imageTag', value: "${branch}"],
+                    ],wait: false
+                }
+                */
+                notifySuccessful()
+            } catch (e) {
+                currentBuild.result = "FAILED"
+                notifyFailed()
+                throw e
+            }
+        }
+    }
+}
